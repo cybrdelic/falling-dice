@@ -43,7 +43,8 @@ jobs:
           digest = hashlib.sha256(archive).hexdigest()
           if digest != manifest['sha256']:
               raise SystemExit(f"bundle SHA-256 mismatch: {digest}")
-          pathlib.Path('/tmp/falling-dice-import.zip').write_bytes(archive)
+          archive_path = pathlib.Path('/tmp/falling-dice-import.tar.xz')
+          archive_path.write_bytes(archive)
           print(f"verified {len(archive):,} bytes: {digest}")
           PY
 
@@ -52,7 +53,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 ! -name .git ! -name .github -exec rm -rf {} +
           find .github -mindepth 1 -maxdepth 1 ! -name import-manifest.json ! -name workflows -exec rm -rf {} +
           find .github/workflows -mindepth 1 -maxdepth 1 ! -name import-bundle.yml -exec rm -rf {} +
-          unzip -o /tmp/falling-dice-import.zip -d .
+          tar -xJf /tmp/falling-dice-import.tar.xz -C .
           rm -f .github/import-manifest.json .github/workflows/import-bundle.yml
 
       - name: Commit imported source and media
