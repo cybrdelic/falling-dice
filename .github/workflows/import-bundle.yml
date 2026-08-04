@@ -1,0 +1,61 @@
+name: Import prepared repository bundle
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/import-manifest.json
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct and verify bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          manifest = json.loads(pathlib.Path('.github/import-manifest.json').read_text())
+          encoded_parts = []
+          for blob_sha in manifest['blob_shas']:
+              raw = subprocess.check_output(
+                  ['gh', 'api', f"repos/{os.environ['REPO']}/git/blobs/{blob_sha}"]
+              )
+              payload = json.loads(raw)
+              encoded_parts.append(base64.b64decode(payload['content']).decode('ascii'))
+
+          archive = base64.b64decode(''.join(encoded_parts))
+          digest = hashlib.sha256(archive).hexdigest()
+          if digest != manifest['sha256']:
+              raise SystemExit(f"bundle SHA-256 mismatch: {digest}")
+          pathlib.Path('/tmp/falling-dice-import.zip').write_bytes(archive)
+          print(f"verified {len(archive):,} bytes: {digest}")
+          PY
+
+      - name: Install repository tree
+        run: |
+          unzip -o /tmp/falling-dice-import.zip -d .
+          rm -f .github/import-manifest.json .github/workflows/import-bundle.yml
+
+      - name: Commit imported source and media
+        run: |
+          git config user.name "falling-dice-import"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Import conversation source and start metamaterial compression"
+          git push origin HEAD:master
