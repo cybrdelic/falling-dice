@@ -1,3 +1,3 @@
-# Media
+# README media
 
-The root README links to compact previews committed in a follow-up media commit. Full-resolution renders remain reproducible from the project scripts and are intentionally not required for compilation.
+These compact H.264/JPEG previews are committed directly so the repository README renders without broken links. The full-resolution outputs are reproducible from the C++ project render scripts.

@@ -2,13 +2,15 @@
 
 A browsable C++20 research repository containing the maintained **1,000-die rigid-body/rendering project** and the rebuilt **nonlinear beam-lattice compression solver**.
 
-The source is committed directly under `projects/`; it is not hidden behind a README-only archive.
+The source is committed directly under `projects/`; the images and playable MP4 previews below are committed under [`media/`](media/).
 
 ## Falling dice
 
-[**Play the C++ falling-dice preview**](media/falling-dice-preview.mp4)
+[**▶ Play the C++ falling-dice preview (MP4)**](media/falling-dice-preview.mp4)
 
-[![Falling-dice sequence](media/falling-dice-contact.jpg)](media/falling-dice-preview.mp4)
+[![Falling-dice sequence — click to play the MP4](media/falling-dice-contact.jpg)](media/falling-dice-preview.mp4)
+
+![Final settled dice pile](media/falling-dice-final.jpg)
 
 Source: [`projects/falling-dice/current`](projects/falling-dice/current)
 
@@ -21,11 +23,17 @@ Core implementation:
 
 ## Nonlinear metamaterial compression
 
-[**Play the load/unload compression preview**](media/metamaterial-compression-preview.mp4)
+[**▶ Play the load/unload compression preview (MP4)**](media/metamaterial-compression-v2.mp4)
 
-[![Compression sequence](media/metamaterial-compression-contact.jpg)](media/metamaterial-compression-preview.mp4)
+[![Compression and unloading sequence — click to play the MP4](media/metamaterial-compression-v2-contact.jpg)](media/metamaterial-compression-v2.mp4)
 
-![Force–displacement hysteresis](media/metamaterial-force-displacement.jpg)
+### Deformation, response, and convergence
+
+| Buckled graded lattice | Force–displacement hysteresis |
+|---|---|
+| ![Buckled graded lattice](media/metamaterial-compression-v2-buckling.jpg) | ![Force–displacement hysteresis](media/metamaterial-compression-v2-force.jpg) |
+
+![Step-refinement convergence audit](media/metamaterial-compression-v2-convergence.jpg)
 
 Source: [`projects/metamaterial-compression/industry-grade`](projects/metamaterial-compression/industry-grade)
 
@@ -51,6 +59,21 @@ Key files:
 - [`docs/VALIDATION.md`](projects/metamaterial-compression/industry-grade/docs/VALIDATION.md)
 - [`docs/MATERIAL_CALIBRATION.md`](projects/metamaterial-compression/industry-grade/docs/MATERIAL_CALIBRATION.md)
 - [`docs/PRINTING.md`](projects/metamaterial-compression/industry-grade/docs/PRINTING.md)
+
+## Media manifest
+
+Every README link above is relative to this repository and resolves to a committed file:
+
+| Asset | Path |
+|---|---|
+| Falling-dice MP4 | [`media/falling-dice-preview.mp4`](media/falling-dice-preview.mp4) |
+| Falling-dice contact sheet | [`media/falling-dice-contact.jpg`](media/falling-dice-contact.jpg) |
+| Falling-dice final frame | [`media/falling-dice-final.jpg`](media/falling-dice-final.jpg) |
+| Compression MP4 | [`media/metamaterial-compression-v2.mp4`](media/metamaterial-compression-v2.mp4) |
+| Compression contact sheet | [`media/metamaterial-compression-v2-contact.jpg`](media/metamaterial-compression-v2-contact.jpg) |
+| Buckling frame | [`media/metamaterial-compression-v2-buckling.jpg`](media/metamaterial-compression-v2-buckling.jpg) |
+| Force curve | [`media/metamaterial-compression-v2-force.jpg`](media/metamaterial-compression-v2-force.jpg) |
+| Convergence plot | [`media/metamaterial-compression-v2-convergence.jpg`](media/metamaterial-compression-v2-convergence.jpg) |
 
 ## Build
 
