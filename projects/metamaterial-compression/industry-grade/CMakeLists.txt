@@ -11,7 +11,10 @@ else()
   target_compile_options(metamaterial_compression PRIVATE -O3 -Wall -Wextra -Wpedantic)
   target_link_libraries(metamaterial_compression PRIVATE pthread)
 endif()
+
 include(CTest)
 if(BUILD_TESTING)
-  add_test(NAME metamaterial_numerical_validation COMMAND metamaterial_compression --mode validate --quick --output ${CMAKE_BINARY_DIR}/validation)
+  add_test(NAME metamaterial_numerical_validation
+    COMMAND metamaterial_compression --mode validate --quick
+            --output ${CMAKE_BINARY_DIR}/validation)
 endif()

@@ -10,5 +10,5 @@ if(BUILD_FALLING_DICE)
 endif()
 
 if(BUILD_METAMATERIAL_COMPRESSION)
-  add_subdirectory(projects/metamaterial-compression projects/metamaterial-compression)
+  add_subdirectory(projects/metamaterial-compression/industry-grade projects/metamaterial-compression)
 endif()

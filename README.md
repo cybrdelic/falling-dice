@@ -1,18 +1,18 @@
-# Falling Dice — C++ simulation, rendering, and metamaterial research
+# Falling Dice + Nonlinear Metamaterial Compression
 
-This repository contains the maintained **1,000-die rigid-body simulation and renderer**, the rebuilt **nonlinear metamaterial compression solver**, and a compressed archive of the earlier source revisions from the development thread.
+A browsable C++20 research repository containing the maintained **1,000-die rigid-body/rendering project** and the rebuilt **nonlinear beam-lattice compression solver**.
 
-The code is committed directly under `projects/`; it is not README-only.
+The source is committed directly under `projects/`; it is not hidden behind a README-only archive.
 
 ## Falling dice
 
-[**Watch the C++ falling-dice preview**](media/falling-dice-preview.mp4)
+[**Play the C++ falling-dice preview**](media/falling-dice-preview.mp4)
 
 [![Falling-dice sequence](media/falling-dice-contact.jpg)](media/falling-dice-preview.mp4)
 
-![Final dice pile](media/falling-dice-final.jpg)
-
 Source: [`projects/falling-dice/current`](projects/falling-dice/current)
+
+Core implementation:
 
 - [`src/sim.cpp`](projects/falling-dice/current/src/sim.cpp) — dense rigid-body/contact simulation
 - [`src/render.cpp`](projects/falling-dice/current/src/render.cpp) — custom CPU rendering/path-tracing pipeline
@@ -21,17 +21,13 @@ Source: [`projects/falling-dice/current`](projects/falling-dice/current)
 
 ## Nonlinear metamaterial compression
 
-[**Watch the load/unload compression preview**](media/metamaterial-compression-v2.mp4)
+[**Play the load/unload compression preview**](media/metamaterial-compression-preview.mp4)
 
-[![Compression sequence](media/metamaterial-compression-v2-contact.jpg)](media/metamaterial-compression-v2.mp4)
+[![Compression sequence](media/metamaterial-compression-contact.jpg)](media/metamaterial-compression-preview.mp4)
 
-![Buckled graded lattice](media/metamaterial-compression-v2-buckling.jpg)
+![Force–displacement hysteresis](media/metamaterial-force-displacement.jpg)
 
-![Force–displacement hysteresis](media/metamaterial-compression-v2-force.jpg)
-
-![Step-refinement audit](media/metamaterial-compression-v2-convergence.jpg)
-
-Source: [`projects/metamaterial-compression`](projects/metamaterial-compression)
+Source: [`projects/metamaterial-compression/industry-grade`](projects/metamaterial-compression/industry-grade)
 
 The current implementation replaces the earlier point-mass/XPBD prototype with:
 
@@ -41,10 +37,20 @@ The current implementation replaces the earlier point-mass/XPBD prototype with:
 - Beam self-contact and rigid platen contact
 - Incremental quasi-static equilibrium with L-BFGS and safeguarded line search
 - Loading and unloading with direct platen-reaction extraction
-- Energy, SEA, efficiency, and permanent-set metrics
+- Energy, specific-energy-absorption, efficiency, and permanent-set metrics
 - Objectivity, finite-difference gradient, convergence, and penetration checks
 - A custom CPU capsule/sphere path tracer
 - Watertight implicit-union STL export
+
+Key files:
+
+- [`src/sim.cpp`](projects/metamaterial-compression/industry-grade/src/sim.cpp) — nonlinear mechanics, contact, plasticity, and solve loop
+- [`src/render.cpp`](projects/metamaterial-compression/industry-grade/src/render.cpp) — C++ visualization renderer
+- [`src/main.cpp`](projects/metamaterial-compression/industry-grade/src/main.cpp) — CLI, validation, cache, and manufacturing export
+- [`docs/NUMERICAL_METHOD.md`](projects/metamaterial-compression/industry-grade/docs/NUMERICAL_METHOD.md)
+- [`docs/VALIDATION.md`](projects/metamaterial-compression/industry-grade/docs/VALIDATION.md)
+- [`docs/MATERIAL_CALIBRATION.md`](projects/metamaterial-compression/industry-grade/docs/MATERIAL_CALIBRATION.md)
+- [`docs/PRINTING.md`](projects/metamaterial-compression/industry-grade/docs/PRINTING.md)
 
 ## Build
 
@@ -54,13 +60,25 @@ cmake --build build --config Release -j
 ctest --test-dir build --output-on-failure
 ```
 
-## Historical source
+Run numerical validation:
 
-[Download the source-history bundle](source/falling-dice-complete-source.zip).
+```bash
+./build/projects/metamaterial-compression/metamaterial_compression \
+  --mode validate --quick --output validation
+```
+
+Run a compression simulation:
+
+```bash
+./build/projects/metamaterial-compression/metamaterial_compression \
+  --mode sim --output output/metamaterial
+```
 
 ## Engineering boundary
 
 This is an engineering research codebase, not a certified material model. The nonlinear architecture, contact pipeline, manufacturing exporter, and numerical tests are implemented; physical prediction still requires calibration to the exact material, printer, orientation, temperature, strain rate, friction, and failure behavior.
+
+See [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md).
 
 ## License
 

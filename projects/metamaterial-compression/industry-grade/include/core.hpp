@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -23,11 +24,12 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
-namespace arm {
+namespace meta {
 constexpr double PI=3.1415926535897932384626433832795;
 constexpr double INF=std::numeric_limits<double>::infinity();
 inline double clamp(double x,double lo,double hi){return std::max(lo,std::min(hi,x));}
 inline double saturate(double x){return clamp(x,0.0,1.0);}
+inline double lerp(double a,double b,double t){return a*(1.0-t)+b*t;}
 inline double sq(double x){return x*x;}
 inline double smoothstep(double a,double b,double x){if(std::abs(b-a)<1e-15)return x>=b?1.0:0.0;double t=saturate((x-a)/(b-a));return t*t*(3.0-2.0*t);}
 inline double smootherstep(double a,double b,double x){if(std::abs(b-a)<1e-15)return x>=b?1.0:0.0;double t=saturate((x-a)/(b-a));return t*t*t*(t*(t*6.0-15.0)+10.0);}
@@ -45,6 +47,8 @@ inline uint64_t splitmix64(uint64_t x){x+=0x9e3779b97f4a7c15ULL;x=(x^(x>>30))*0x
 struct Int3Hash{size_t operator()(int64_t k)const noexcept{return size_t(splitmix64(uint64_t(k)));}};inline int64_t cellKey(int x,int y,int z){constexpr int64_t B=1LL<<20,M=(1LL<<21)-1;return((int64_t(x)+B)&M)|(((int64_t(y)+B)&M)<<21)|(((int64_t(z)+B)&M)<<42);}inline uint64_t pairKey(int a,int b){if(a>b)std::swap(a,b);return(uint64_t(uint32_t(a))<<32)|uint32_t(b);}inline Vec3 orthogonal(const Vec3&n){Vec3 h=std::abs(n.z)<.8?Vec3{0,0,1}:Vec3{0,1,0};return normalize(cross(h,n));}
 }
 
-using namespace arm;
-inline double mix(double a, double b, double t) { return a * (1.0 - t) + b * t; }
-
+namespace meta {
+inline Quat quatExp(const Vec3&v){double a=length(v);if(a<1e-12)return normalized({1-.125*a*a,.5*v.x,.5*v.y,.5*v.z});return quatAxisAngle(v/a,a);}
+inline Vec3 quatLog(Quat q){q=normalized(q);if(q.w<0)q={-q.w,-q.x,-q.y,-q.z};double s=std::sqrt(q.x*q.x+q.y*q.y+q.z*q.z);if(s<1e-12)return{2*q.x,2*q.y,2*q.z};double a=2*std::atan2(s,clamp(q.w,-1,1));return(a/s)*Vec3{q.x,q.y,q.z};}
+inline Vec3 leftJacobianInverseTransposeApply(const Vec3&p,const Vec3&v){double a=length(p);if(a<1e-7)return v+.5*cross(p,v)+(1.0/12.0)*cross(p,cross(p,v));double A=1/(a*a)-(1+std::cos(a))/(2*a*std::sin(a));return v+.5*cross(p,v)+A*cross(p,cross(p,v));}
+}

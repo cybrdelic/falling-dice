@@ -60,3 +60,21 @@ soundtrack:                       none
 ```
 
 Both release encodes completed a full FFmpeg decode pass with no reported errors.
+
+```text
+master:
+  codec/profile:                  H.264 High
+  dimensions:                     640 × 1138
+  pixel format:                   YUV 4:2:0
+  frames:                         108
+  frame rate:                     30 FPS
+  duration:                       3.600000 s
+
+mobile:
+  codec/profile:                  H.264 Constrained Baseline
+  dimensions:                     540 × 960
+  pixel format:                   YUV 4:2:0
+  frames:                         108
+  frame rate:                     30 FPS
+  duration:                       3.600000 s
+```
