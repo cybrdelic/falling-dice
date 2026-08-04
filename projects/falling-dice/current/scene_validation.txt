@@ -1,0 +1,8 @@
+cache frames: 143
+bodies per frame: 1002
+measured dice swept AABB:
+  lo: -0.324452766 -0.003148698 -0.329793376
+  hi: 0.281077185 0.390320000 0.259161172
+renderer-only prop envelope failures: 0
+dynamic lift-sleeve/die AABB overlaps: 0
+scene collision-visibility validation: PASS

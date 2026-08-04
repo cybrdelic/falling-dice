@@ -1,0 +1,8 @@
+**/build/
+**/frames/
+**/output/
+**/*.ppm
+**/*.meta3
+**/*.dice1k
+.DS_Store
+Thumbs.db
