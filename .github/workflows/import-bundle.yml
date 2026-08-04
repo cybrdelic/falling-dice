@@ -5,6 +5,10 @@ on:
     branches: [master]
     paths:
       - .github/import-manifest.json
+  pull_request:
+    branches: [master]
+    paths:
+      - .github/import-manifest.json
 
 permissions:
   contents: write
