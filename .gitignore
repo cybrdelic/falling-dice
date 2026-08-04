@@ -1,8 +1,0 @@
-build*/
-output*/
-release*/
-frames/
-clean/
-*.ppm
-*.log
-__pycache__/
