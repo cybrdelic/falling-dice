@@ -1,0 +1,71 @@
+name: Fetch portable Bforartists renderer in chunks
+
+on:
+  push:
+    branches:
+      - assistant/fetch-bforartists-20260805
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-renderer-chunks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download and verify portable AppImage
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 6 --retry-delay 3 \
+            -o Bforartists-5.2.0-x86_64.AppImage \
+            https://github.com/Bforartists/Bforartists/releases/download/v5.2.0/Bforartists-5.2.0-x86_64.AppImage
+          echo 'b8ddb706e726cfb953bfd9acdbd38f0a09498a0f79c91944f565ff3b0b20e542  Bforartists-5.2.0-x86_64.AppImage' | sha256sum -c -
+          sha256sum Bforartists-5.2.0-x86_64.AppImage > Bforartists-5.2.0-x86_64.AppImage.sha256
+          split --bytes=100000000 --numeric-suffixes=0 --suffix-length=2 \
+            Bforartists-5.2.0-x86_64.AppImage Bforartists.part-
+          test "$(find . -maxdepth 1 -name 'Bforartists.part-*' | wc -l)" -eq 6
+      - name: Upload chunk 00
+        uses: actions/upload-artifact@v4
+        with:
+          name: bforartists-appimage-part-00
+          path: Bforartists.part-00
+          compression-level: 0
+          retention-days: 1
+      - name: Upload chunk 01
+        uses: actions/upload-artifact@v4
+        with:
+          name: bforartists-appimage-part-01
+          path: Bforartists.part-01
+          compression-level: 0
+          retention-days: 1
+      - name: Upload chunk 02
+        uses: actions/upload-artifact@v4
+        with:
+          name: bforartists-appimage-part-02
+          path: Bforartists.part-02
+          compression-level: 0
+          retention-days: 1
+      - name: Upload chunk 03
+        uses: actions/upload-artifact@v4
+        with:
+          name: bforartists-appimage-part-03
+          path: Bforartists.part-03
+          compression-level: 0
+          retention-days: 1
+      - name: Upload chunk 04
+        uses: actions/upload-artifact@v4
+        with:
+          name: bforartists-appimage-part-04
+          path: Bforartists.part-04
+          compression-level: 0
+          retention-days: 1
+      - name: Upload chunk 05 and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: bforartists-appimage-part-05
+          path: |
+            Bforartists.part-05
+            Bforartists-5.2.0-x86_64.AppImage.sha256
+          compression-level: 0
+          retention-days: 1
