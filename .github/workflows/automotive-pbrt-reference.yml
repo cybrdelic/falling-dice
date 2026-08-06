@@ -21,7 +21,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build cmake g++ python3 libglfw3-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libglu1-mesa-dev
+          sudo apt-get install -y ninja-build cmake g++ python3 libglfw3-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libglu1-mesa-dev libxkbcommon-dev wayland-protocols
 
       - name: Fetch PBRT-v4 and the CC0 BMW M6 scene
         shell: bash
@@ -36,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cmake -S pbrt-v4 -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPBRT_BUILD_GPU_RENDERER=OFF
+          cmake -S pbrt-v4 -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPBRT_BUILD_GPU_RENDERER=OFF -DGLFW_BUILD_WAYLAND=OFF
           cmake --build build --target pbrt -j4
           build/pbrt --help > pbrt_help.txt
 
