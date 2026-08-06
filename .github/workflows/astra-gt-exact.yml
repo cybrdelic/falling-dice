@@ -31,8 +31,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat projects/astra-gt/src/main.cpp.b64.part* | base64 --decode > projects/astra-gt/src/main.cpp
+          cat projects/astra-gt/src/main.cpp.gz.b64.part* \
+            | base64 --decode \
+            | gzip --decompress \
+            > projects/astra-gt/src/main.cpp
           test -s projects/astra-gt/src/main.cpp
+          echo "a2d87badb441e04d3ad10c0403275ffa8ff3067cc3e84fa867d9b5034580890f  projects/astra-gt/src/main.cpp" | sha256sum --check --strict
           sha256sum projects/astra-gt/src/main.cpp | tee projects/astra-gt/SOURCE_SHA256.txt
 
       - name: Configure and build warning-strict C++ release
@@ -48,6 +52,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p generated
           ./build/astra-gt/astra_gt generated/astra_gt 2>&1 | tee generated/astra_gt_generator.log
           jq empty generated/astra_gt/manifest.json
           test -s generated/astra_gt/cad/ASTRA_GT_render_assembly.step
