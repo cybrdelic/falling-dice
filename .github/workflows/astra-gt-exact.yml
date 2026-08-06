@@ -1,0 +1,117 @@
+name: ASTRA GT exact CAD and PBRT render
+
+on:
+  push:
+    branches:
+      - automotive-occt-astra-v8
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-cad-render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install exact-CAD and rendering dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build cmake g++ python3 python3-pil jq zip imagemagick \
+            libocct-foundation-dev libocct-modeling-data-dev \
+            libocct-modeling-algorithms-dev libocct-data-exchange-dev \
+            libocct-ocaf-dev libocct-visualization-dev libtbb-dev \
+            libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libxrandr-dev libglu1-mesa-dev libxkbcommon-dev wayland-protocols
+
+      - name: Reconstitute retained C++ source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat projects/astra-gt/src/main.cpp.b64.part* | base64 --decode > projects/astra-gt/src/main.cpp
+          test -s projects/astra-gt/src/main.cpp
+          sha256sum projects/astra-gt/src/main.cpp | tee projects/astra-gt/SOURCE_SHA256.txt
+
+      - name: Configure and build warning-strict C++ release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S projects/astra-gt -B build/astra-gt -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DASTRA_WARNINGS_AS_ERRORS=ON
+          cmake --build build/astra-gt --parallel 4
+
+      - name: Generate exact B-rep product and renderer meshes
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/astra-gt/astra_gt generated/astra_gt 2>&1 | tee generated/astra_gt_generator.log
+          jq empty generated/astra_gt/manifest.json
+          test -s generated/astra_gt/cad/ASTRA_GT_render_assembly.step
+          test -s generated/astra_gt/cad/ASTRA_GT_full_package.step
+          test "$(find generated/astra_gt/mesh/parts -name '*.ply' | wc -l)" -ge 40
+          convert generated/astra_gt/diagnostics/front.ppm generated/astra_gt/diagnostics/front.png
+          convert generated/astra_gt/diagnostics/side.ppm generated/astra_gt/diagnostics/side.png
+          convert generated/astra_gt/diagnostics/top.ppm generated/astra_gt/diagnostics/top.png
+
+      - name: Build PBRT-v4 C++ CPU path tracer
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --recursive --depth 1 https://github.com/mmp/pbrt-v4.git vendor/pbrt-v4
+          cmake -S vendor/pbrt-v4 -B build/pbrt-v4 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPBRT_BUILD_GPU_RENDERER=OFF \
+            -DGLFW_BUILD_WAYLAND=OFF
+          cmake --build build/pbrt-v4 --target pbrt --parallel 4
+
+      - name: Render invariant production views
+        shell: bash
+        run: |
+          set -euo pipefail
+          pushd generated/astra_gt/scenes
+          ../../../build/pbrt-v4/pbrt --spp 48 hero_front.pbrt
+          ../../../build/pbrt-v4/pbrt --spp 40 hero_rear.pbrt
+          ../../../build/pbrt-v4/pbrt --spp 32 side.pbrt
+          ../../../build/pbrt-v4/pbrt --spp 40 front_low.pbrt
+          popd
+          mkdir -p generated/astra_gt/renders
+          mv generated/astra_gt/scenes/*.png generated/astra_gt/renders/
+
+      - name: Independent release checks and presentation board
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 projects/astra-gt/tools/validate_release.py generated/astra_gt
+          python3 projects/astra-gt/tools/make_board.py generated/astra_gt
+          find generated/astra_gt -type f -print0 | sort -z | xargs -0 sha256sum > generated/astra_gt/SHA256SUMS.txt
+          cp projects/astra-gt/README.md generated/astra_gt/README.md
+          cp projects/astra-gt/src/main.cpp generated/astra_gt/astra_gt_main.cpp
+          cp build/astra-gt/astra_gt generated/astra_gt/astra_gt_linux_x86_64
+          cp build/pbrt-v4/pbrt generated/astra_gt/pbrt_linux_x86_64
+          (cd generated && zip -9 -r ASTRA_GT_exact_vehicle_release.zip astra_gt)
+          unzip -t generated/ASTRA_GT_exact_vehicle_release.zip | tee generated/zip_integrity.txt
+          sha256sum generated/ASTRA_GT_exact_vehicle_release.zip > generated/ASTRA_GT_exact_vehicle_release.zip.sha256
+
+      - name: Upload exact vehicle program
+        uses: actions/upload-artifact@v4
+        with:
+          name: ASTRA_GT_exact_vehicle_release
+          path: |
+            generated/ASTRA_GT_exact_vehicle_release.zip
+            generated/ASTRA_GT_exact_vehicle_release.zip.sha256
+            generated/zip_integrity.txt
+            generated/astra_gt/presentation/
+            generated/astra_gt/renders/
+            generated/astra_gt/diagnostics/*.png
+            generated/astra_gt/manifest.json
+            generated/astra_gt/validation/
+            generated/astra_gt/cad/ASTRA_GT_render_assembly.step
+            generated/astra_gt/cad/ASTRA_GT_full_package.step
+            generated/astra_gt/astra_gt_main.cpp
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
