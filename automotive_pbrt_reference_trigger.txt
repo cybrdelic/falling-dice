@@ -1,1 +1,3 @@
-Temporary trigger for the PBRT-v4 automotive reference workflow. This file and the workflow will be removed after the artifact is retrieved.
+Temporary trigger for the PBRT-v4 automotive reference workflow.
+Trigger revision: 2 — Linux dependency fix.
+This file and the workflow will be removed after the artifact is retrieved.
