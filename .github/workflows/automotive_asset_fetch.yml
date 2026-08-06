@@ -1,0 +1,42 @@
+name: Automotive market reference asset
+
+on:
+  push:
+    branches:
+      - automotive-market-v6-assets
+    paths:
+      - .github/workflows/automotive_asset_fetch.yml
+
+permissions:
+  contents: read
+
+jobs:
+  package-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fetch official PBRT BMW M6 scene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/mmp/pbrt-v4-scenes.git source
+          cd source
+          git sparse-checkout set bmw-m6
+          cd ..
+          mkdir -p artifact
+          cp -a source/bmw-m6 artifact/
+          cp source/LICENSE.txt artifact/PBRT_SCENES_LICENSE.txt 2>/dev/null || true
+          find artifact -type f -print0 | sort -z | xargs -0 sha256sum > artifact/SHA256SUMS.txt
+          printf '%s\n' \
+            'Source: https://github.com/mmp/pbrt-v4-scenes/tree/master/bmw-m6' \
+            'Purpose: geometry and rendering fidelity reference; not an original vehicle design.' \
+            > artifact/REFERENCE_PROVENANCE.txt
+
+      - name: Upload reference scene
+        uses: actions/upload-artifact@v4
+        with:
+          name: bmw-m6-reference
+          path: artifact
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 1
