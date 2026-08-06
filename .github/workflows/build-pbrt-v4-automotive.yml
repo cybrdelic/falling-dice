@@ -1,0 +1,53 @@
+name: Build PBRT-v4 automotive renderer
+
+on:
+  push:
+    branches:
+      - automotive-pbrt-v6
+    paths:
+      - .github/workflows/build-pbrt-v4-automotive.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake g++ python3 libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev libxrandr-dev libglu1-mesa-dev
+
+      - name: Clone PBRT-v4 with submodules
+        run: git clone --depth 1 --recursive https://github.com/mmp/pbrt-v4.git
+
+      - name: Configure
+        run: cmake -S pbrt-v4 -B pbrt-v4/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build pbrt-v4/build --parallel 4
+
+      - name: Package executables
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/bin artifact/licenses
+          cp pbrt-v4/build/pbrt artifact/bin/
+          cp pbrt-v4/build/imgtool artifact/bin/
+          cp pbrt-v4/LICENSE.txt artifact/licenses/PBRT_LICENSE.txt
+          ldd artifact/bin/pbrt > artifact/PBRT_LDD.txt
+          ldd artifact/bin/imgtool > artifact/IMGTOOL_LDD.txt
+          artifact/bin/pbrt --help > artifact/PBRT_HELP.txt 2>&1 || true
+          find artifact -type f -print0 | sort -z | xargs -0 sha256sum > artifact/SHA256SUMS.txt
+
+      - name: Upload PBRT-v4 binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: pbrt-v4-linux-x86_64
+          path: artifact
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 1
