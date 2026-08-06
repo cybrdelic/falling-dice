@@ -1,0 +1,101 @@
+name: Render automotive fidelity benchmark
+
+on:
+  push:
+    branches:
+      - assistant/fetch-bforartists-20260805
+    paths:
+      - .github/workflows/render-automotive-benchmark.yml
+
+permissions:
+  contents: read
+
+jobs:
+  render-camera-sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake g++ python3 libglfw3-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Fetch PBRT C++ renderer and CC0 BMW scene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --recursive --depth 1 https://github.com/mmp/pbrt-v4.git pbrt-v4
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/mmp/pbrt-v4-scenes.git scenes
+          cd scenes
+          git sparse-checkout set bmw-m6
+
+      - name: Build PBRT CPU renderer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S pbrt-v4 -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPBRT_BUILD_GPU_RENDERER=OFF
+          cmake --build build --target pbrt imgtool -j2
+          build/pbrt --help > pbrt_help.txt
+
+      - name: Generate deterministic camera sweep
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import math, re
+
+          scene_dir = Path('scenes/bmw-m6')
+          source = (scene_dir / 'bmw-m6.pbrt').read_text()
+          target = (-2.0, -0.45, 0.0)
+          radius = 11.0
+          height = 1.6
+          angles = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
+
+          source = re.sub(r'"integer yresolution"\s*\[\s*\d+\s*\]', '"integer yresolution" [ 450 ]', source)
+          source = re.sub(r'"integer xresolution"\s*\[\s*\d+\s*\]', '"integer xresolution" [ 800 ]', source)
+          source = re.sub(r'"float fov"\s*\[\s*[^\]]+\]', '"float fov" [ 31 ]', source)
+          source = re.sub(r'Sampler "halton"\s*\n\s*"integer pixelsamples"\s*\[\s*\d+\s*\]', 'Sampler "halton"\n    "integer pixelsamples" [ 16 ]', source)
+
+          for angle in angles:
+              a = math.radians(angle)
+              eye = (target[0] + radius * math.cos(a), height, target[2] + radius * math.sin(a))
+              text = re.sub(
+                  r'LookAt\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s*\n\s*[-+0-9.eE]+\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s*\n\s*[-+0-9.eE]+\s+[-+0-9.eE]+\s+[-+0-9.eE]+',
+                  f'LookAt {eye[0]:.6f} {eye[1]:.6f} {eye[2]:.6f}\n    {target[0]:.6f} {target[1]:.6f} {target[2]:.6f}\n    0 1 0',
+                  source,
+                  count=1,
+              )
+              text = re.sub(r'"string filename"\s*\[\s*"[^"]+"\s*\]', f'"string filename" [ "sweep_{angle:03d}.png" ]', text, count=1)
+              (scene_dir / f'sweep_{angle:03d}.pbrt').write_text(text)
+          PY
+
+      - name: Render twelve-angle sweep with the C++ path tracer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/sweep
+          for scene in scenes/bmw-m6/sweep_*.pbrt; do
+            name="$(basename "$scene" .pbrt)"
+            echo "Rendering $name"
+            (cd scenes/bmw-m6 && ../../../build/pbrt --spp 16 "$(basename "$scene")")
+            cp "scenes/bmw-m6/${name}.png" "artifact/sweep/${name}.png"
+            cp "$scene" "artifact/sweep/${name}.pbrt"
+          done
+          cp pbrt_help.txt artifact/
+          cp scenes/bmw-m6/BLENDSWAP_LICENSE.txt artifact/
+          printf '%s\n' \
+            'Renderer: pbrt-v4, C++ CPU path tracer' \
+            'Geometry: BMW M6 scene from mmp/pbrt-v4-scenes, CC0' \
+            'Purpose: non-procedural automotive fidelity benchmark; not claimed as an original design' \
+            > artifact/PROVENANCE.txt
+          find artifact -type f -print0 | sort -z | xargs -0 sha256sum > artifact/SHA256SUMS.txt
+
+      - name: Upload camera sweep
+        uses: actions/upload-artifact@v4
+        with:
+          name: automotive-benchmark-camera-sweep
+          path: artifact
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 1
