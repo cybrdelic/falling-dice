@@ -1,0 +1,107 @@
+name: Automotive PBRT-v4 reference render
+
+on:
+  pull_request:
+    branches:
+      - master
+    types:
+      - opened
+      - reopened
+      - synchronize
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake g++ python3 libglfw3-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libglu1-mesa-dev
+
+      - name: Fetch PBRT-v4 and the CC0 BMW M6 scene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --recursive --depth 1 https://github.com/mmp/pbrt-v4.git pbrt-v4
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/mmp/pbrt-v4-scenes.git scenes
+          cd scenes
+          git sparse-checkout set bmw-m6
+
+      - name: Build the C++ renderer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S pbrt-v4 -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPBRT_BUILD_GPU_RENDERER=OFF
+          cmake --build build --target pbrt -j4
+          build/pbrt --help > pbrt_help.txt
+
+      - name: Generate calibrated camera views
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import math, re
+
+          scene_dir = Path('scenes/bmw-m6')
+          source = (scene_dir / 'bmw-m6.pbrt').read_text()
+          target = (-2.0, -0.50, 0.0)
+          radius = 10.3
+          eye_height = 0.92
+          angles = [150, 90, 30, 210]
+
+          source = re.sub(r'"integer yresolution"\s*\[\s*\d+\s*\]', '"integer yresolution" [ 600 ]', source)
+          source = re.sub(r'"integer xresolution"\s*\[\s*\d+\s*\]', '"integer xresolution" [ 960 ]', source)
+          source = re.sub(r'"float fov"\s*\[\s*[^\]]+\]', '"float fov" [ 29 ]', source)
+          source = source.replace('"rgb reflectance" [ 0.7 .7 .7 ]', '"rgb reflectance" [ 0.16 0.003 0.004 ]')
+          source = source.replace('"float roughness" [ 0 ]', '"float roughness" [ 0.055 ]', 1)
+
+          for angle in angles:
+              a = math.radians(angle)
+              eye = (target[0] + radius * math.cos(a), eye_height, target[2] + radius * math.sin(a))
+              text = re.sub(
+                  r'LookAt\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s*\n\s*[-+0-9.eE]+\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s*\n\s*[-+0-9.eE]+\s+[-+0-9.eE]+\s+[-+0-9.eE]+',
+                  f'LookAt {eye[0]:.6f} {eye[1]:.6f} {eye[2]:.6f}\n    {target[0]:.6f} {target[1]:.6f} {target[2]:.6f}\n    0 1 0',
+                  source,
+                  count=1,
+              )
+              text = re.sub(r'"string filename"\s*\[\s*"[^"]+"\s*\]', f'"string filename" [ "view_{angle:03d}.png" ]', text, count=1)
+              (scene_dir / f'view_{angle:03d}.pbrt').write_text(text)
+          PY
+
+      - name: Render production-reference views
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/renders artifact/scenes artifact/bin artifact/licenses
+          for scene in scenes/bmw-m6/view_*.pbrt; do
+            name="$(basename "$scene" .pbrt)"
+            echo "Rendering $name"
+            (cd scenes/bmw-m6 && ../../build/pbrt --spp 96 "$(basename "$scene")")
+            cp "scenes/bmw-m6/${name}.png" "artifact/renders/${name}.png"
+            cp "$scene" "artifact/scenes/${name}.pbrt"
+          done
+          cp build/pbrt artifact/bin/
+          cp pbrt_help.txt artifact/
+          cp scenes/bmw-m6/BLENDSWAP_LICENSE.txt artifact/licenses/
+          cp pbrt-v4/LICENSE.txt artifact/licenses/PBRT_LICENSE.txt
+          printf '%s\n' \
+            'Renderer: PBRT-v4 C++ CPU volumetric path integrator' \
+            'Geometry: BMW M6 scene from mmp/pbrt-v4-scenes, CC0' \
+            'Role: production-geometry rendering benchmark; not an original vehicle design' \
+            > artifact/PROVENANCE.txt
+          find artifact -type f -print0 | sort -z | xargs -0 sha256sum > artifact/SHA256SUMS.txt
+
+      - name: Upload reference renders and renderer
+        uses: actions/upload-artifact@v4
+        with:
+          name: automotive-pbrt-v4-reference
+          path: artifact
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 1
