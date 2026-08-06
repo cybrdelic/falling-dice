@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - assistant/fetch-bforartists-20260805
+  pull_request:
+    branches:
+      - master
+    types:
+      - opened
+      - reopened
+      - synchronize
   workflow_dispatch:
 
 permissions:
@@ -55,8 +62,8 @@ jobs:
           source = re.sub(r'"integer xresolution"\s*\[\s*\d+\s*\]', '"integer xresolution" [ 1280 ]', source)
           source = re.sub(r'"float fov"\s*\[\s*[^\]]+\]', '"float fov" [ 29 ]', source)
           source = re.sub(r'Sampler "halton"\s*\n\s*"integer pixelsamples"\s*\[\s*\d+\s*\]', 'Sampler "halton"\n    "integer pixelsamples" [ 64 ]', source)
-          source = source.replace('"rgb reflectance" [ 0.7 .7 .7 ]', '"rgb reflectance" [ 0.22 0.006 0.009 ]')
-          source = source.replace('"float roughness" [ 0 ]', '"float roughness" [ 0.08 ]', 1)
+          source = source.replace('"rgb reflectance" [ 0.7 .7 .7 ]', '"rgb reflectance" [ 0.18 0.002 0.004 ]')
+          source = source.replace('"float roughness" [ 0 ]', '"float roughness" [ 0.07 ]', 1)
 
           for angle in angles:
               a = math.radians(angle)
@@ -79,7 +86,7 @@ jobs:
           for scene in scenes/bmw-m6/sweep_*.pbrt; do
             name="$(basename "$scene" .pbrt)"
             echo "Rendering $name"
-            (cd scenes/bmw-m6 && ../../../build/pbrt --spp 64 "$(basename "$scene")")
+            (cd scenes/bmw-m6 && ../../build/pbrt --spp 64 "$(basename "$scene")")
             cp "scenes/bmw-m6/${name}.png" "artifact/sweep/${name}.png"
             cp "$scene" "artifact/sweep/${name}.pbrt"
           done
