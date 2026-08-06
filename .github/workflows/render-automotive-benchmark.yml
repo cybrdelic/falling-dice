@@ -6,6 +6,9 @@ on:
       - assistant/fetch-bforartists-20260805
     paths:
       - .github/workflows/render-automotive-benchmark.yml
+  pull_request:
+    branches:
+      - master
 
 permissions:
   contents: read
@@ -49,13 +52,13 @@ jobs:
           source = (scene_dir / 'bmw-m6.pbrt').read_text()
           target = (-2.0, -0.45, 0.0)
           radius = 11.0
-          height = 1.6
-          angles = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
+          height = 1.45
+          angles = [30, 90, 150, 210, 270, 330]
 
-          source = re.sub(r'"integer yresolution"\s*\[\s*\d+\s*\]', '"integer yresolution" [ 450 ]', source)
-          source = re.sub(r'"integer xresolution"\s*\[\s*\d+\s*\]', '"integer xresolution" [ 800 ]', source)
+          source = re.sub(r'"integer yresolution"\s*\[\s*\d+\s*\]', '"integer yresolution" [ 540 ]', source)
+          source = re.sub(r'"integer xresolution"\s*\[\s*\d+\s*\]', '"integer xresolution" [ 960 ]', source)
           source = re.sub(r'"float fov"\s*\[\s*[^\]]+\]', '"float fov" [ 31 ]', source)
-          source = re.sub(r'Sampler "halton"\s*\n\s*"integer pixelsamples"\s*\[\s*\d+\s*\]', 'Sampler "halton"\n    "integer pixelsamples" [ 16 ]', source)
+          source = re.sub(r'Sampler "halton"\s*\n\s*"integer pixelsamples"\s*\[\s*\d+\s*\]', 'Sampler "halton"\n    "integer pixelsamples" [ 48 ]', source)
 
           for angle in angles:
               a = math.radians(angle)
@@ -70,7 +73,7 @@ jobs:
               (scene_dir / f'sweep_{angle:03d}.pbrt').write_text(text)
           PY
 
-      - name: Render twelve-angle sweep with the C++ path tracer
+      - name: Render six-angle sweep with the C++ spectral path tracer
         shell: bash
         run: |
           set -euo pipefail
@@ -78,14 +81,14 @@ jobs:
           for scene in scenes/bmw-m6/sweep_*.pbrt; do
             name="$(basename "$scene" .pbrt)"
             echo "Rendering $name"
-            (cd scenes/bmw-m6 && ../../../build/pbrt --spp 16 "$(basename "$scene")")
+            (cd scenes/bmw-m6 && ../../build/pbrt --spp 48 "$(basename "$scene")")
             cp "scenes/bmw-m6/${name}.png" "artifact/sweep/${name}.png"
             cp "$scene" "artifact/sweep/${name}.pbrt"
           done
           cp pbrt_help.txt artifact/
           cp scenes/bmw-m6/BLENDSWAP_LICENSE.txt artifact/
           printf '%s\n' \
-            'Renderer: pbrt-v4, C++ CPU path tracer' \
+            'Renderer: pbrt-v4, C++ CPU spectral path tracer' \
             'Geometry: BMW M6 scene from mmp/pbrt-v4-scenes, CC0' \
             'Purpose: non-procedural automotive fidelity benchmark; not claimed as an original design' \
             > artifact/PROVENANCE.txt
