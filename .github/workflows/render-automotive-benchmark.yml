@@ -21,7 +21,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build cmake g++ python3 libglfw3-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get install -y ninja-build cmake g++ python3 libglfw3-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev
 
       - name: Fetch PBRT C++ renderer and CC0 BMW scene
         shell: bash
