@@ -27,7 +27,7 @@ jobs:
             libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev \
             libxrandr-dev libglu1-mesa-dev libxkbcommon-dev wayland-protocols
 
-      - name: Reconstitute retained C++ source
+      - name: Reconstitute and harden retained C++ source
         shell: bash
         run: |
           set -euo pipefail
@@ -37,6 +37,8 @@ jobs:
             > projects/astra-gt/src/main.cpp
           test -s projects/astra-gt/src/main.cpp
           echo "a2d87badb441e04d3ad10c0403275ffa8ff3067cc3e84fa867d9b5034580890f  projects/astra-gt/src/main.cpp" | sha256sum --check --strict
+          python3 projects/astra-gt/tools/patch_source_v2.py
+          echo "f8a5daf72f9dc5737ecad67ee989242529790ee3934598fac8f5aa3f22c428f2  projects/astra-gt/src/main.cpp" | sha256sum --check --strict
           sha256sum projects/astra-gt/src/main.cpp | tee projects/astra-gt/SOURCE_SHA256.txt
 
       - name: Configure and build warning-strict C++ release
@@ -117,6 +119,7 @@ jobs:
             generated/astra_gt/cad/ASTRA_GT_render_assembly.step
             generated/astra_gt/cad/ASTRA_GT_full_package.step
             generated/astra_gt/astra_gt_main.cpp
+            generated/astra_gt_generator.log
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
