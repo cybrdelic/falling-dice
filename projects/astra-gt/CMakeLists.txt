@@ -10,7 +10,16 @@ find_package(OpenCASCADE REQUIRED)
 
 add_executable(astra_gt src/main.cpp)
 target_include_directories(astra_gt SYSTEM PRIVATE ${OpenCASCADE_INCLUDE_DIR})
-target_link_libraries(astra_gt PRIVATE ${OpenCASCADE_LIBRARIES})
+
+# Link only the modeling and STEP modules used by this executable. Ubuntu's
+# OpenCASCADE package publishes ${OpenCASCADE_LIBRARIES} with DRAW/test modules
+# that are not installed by the runtime development packages; using that broad
+# list makes a valid headless CAD build fail at link time.
+target_link_libraries(astra_gt PRIVATE
+  TKernel TKMath TKG2d TKG3d TKGeomBase
+  TKBRep TKGeomAlgo TKTopAlgo TKPrim TKBO TKBool TKShHealing TKFillet TKOffset
+  TKMesh TKXSBase TKSTEPBase TKSTEPAttr TKSTEP209 TKSTEP
+)
 
 if(MSVC)
   target_compile_options(astra_gt PRIVATE /O2 /W4 /permissive- /EHsc)
