@@ -1,0 +1,46 @@
+name: Package OIDN automotive denoiser
+
+on:
+  push:
+    branches:
+      - assistant/pbrt-v4-automotive-build-20260807
+    paths:
+      - .github/workflows/package-oidn-automotive.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Download official OIDN Linux release
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=2.5.0
+          curl -L --fail --retry 3 \
+            -o oidn.tar.gz \
+            "https://github.com/RenderKit/oidn/releases/download/v${VERSION}/oidn-${VERSION}.x86_64.linux.tar.gz"
+          echo '254a8355856f8cd433edb7dd832b5fb02e7157d073f7d22e331ce06533fb491f  oidn.tar.gz' | sha256sum -c -
+          mkdir unpack artifact
+          tar -xzf oidn.tar.gz -C unpack
+          ROOT="$(find unpack -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          cp -a "$ROOT"/. artifact/
+          printf '%s\n' \
+            'Source: official RenderKit/oidn v2.5.0 Linux x86_64 release' \
+            'Upstream archive SHA-256: 254a8355856f8cd433edb7dd832b5fb02e7157d073f7d22e331ce06533fb491f' \
+            > artifact/AUTOMOTIVE_DENOISER_PROVENANCE.txt
+          find artifact -type f -print0 | sort -z | xargs -0 sha256sum > artifact/SHA256SUMS.txt
+          find artifact -maxdepth 3 -type f | sort
+
+      - name: Upload OIDN runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: oidn-2.5.0-linux-x64-automotive
+          path: artifact
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 1
