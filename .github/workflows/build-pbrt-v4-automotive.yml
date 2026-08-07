@@ -43,28 +43,48 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifact/bin artifact/licenses
+          mkdir -p artifact/bin artifact/lib artifact/licenses
           PBRT_BIN="$(find pbrt-v4/build -type f -name pbrt -perm -111 | head -n1)"
           IMGTOOL_BIN="$(find pbrt-v4/build -type f -name imgtool -perm -111 | head -n1)"
+          OPENGL_LIB="$(ldconfig -p | awk '/libOpenGL\.so\.0/{print $NF; exit}')"
           test -n "$PBRT_BIN"
           test -n "$IMGTOOL_BIN"
-          cp "$PBRT_BIN" artifact/bin/pbrt
-          cp "$IMGTOOL_BIN" artifact/bin/imgtool
+          test -n "$OPENGL_LIB"
+          cp "$PBRT_BIN" artifact/bin/pbrt.bin
+          cp "$IMGTOOL_BIN" artifact/bin/imgtool.bin
+          cp -L "$OPENGL_LIB" artifact/lib/libOpenGL.so.0
+          cat > artifact/bin/pbrt <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+          export LD_LIBRARY_PATH="$ROOT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          exec "$ROOT/bin/pbrt.bin" "$@"
+          EOF
+          cat > artifact/bin/imgtool <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+          export LD_LIBRARY_PATH="$ROOT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          exec "$ROOT/bin/imgtool.bin" "$@"
+          EOF
+          chmod +x artifact/bin/pbrt artifact/bin/imgtool artifact/bin/pbrt.bin artifact/bin/imgtool.bin
           cp pbrt-v4/LICENSE.txt artifact/licenses/PBRT_LICENSE.txt
           cp pbrt-v4/THIRD_PARTY.md artifact/licenses/PBRT_THIRD_PARTY.md
-          ldd artifact/bin/pbrt > artifact/pbrt.ldd.txt || true
-          ldd artifact/bin/imgtool > artifact/imgtool.ldd.txt || true
-          artifact/bin/pbrt --help > artifact/pbrt-help.txt 2>&1 || true
-          sha256sum artifact/bin/* > artifact/SHA256SUMS.txt
+          ldd artifact/bin/pbrt.bin > artifact/pbrt.ldd.txt || true
+          ldd artifact/bin/imgtool.bin > artifact/imgtool.ldd.txt || true
+          artifact/bin/pbrt --help > artifact/pbrt-help.txt 2>&1
+          artifact/bin/imgtool help > artifact/imgtool-help.txt 2>&1 || true
+          sha256sum artifact/bin/*.bin artifact/lib/* > artifact/SHA256SUMS.txt
           printf '%s\n' \
             'Source: https://github.com/mmp/pbrt-v4' \
             'Build: CPU Release, PBRT_BUILD_GPU_RENDERER=OFF, GLFW_BUILD_WAYLAND=OFF' \
+            'Runtime: wrapper supplies bundled libOpenGL.so.0 through LD_LIBRARY_PATH' \
             > artifact/BUILD_PROVENANCE.txt
 
       - name: Upload PBRT runtime
         uses: actions/upload-artifact@v4
         with:
-          name: pbrt-v4-linux-x64-automotive
+          name: pbrt-v4-linux-x64-automotive-portable
           path: artifact
           if-no-files-found: error
           compression-level: 6
