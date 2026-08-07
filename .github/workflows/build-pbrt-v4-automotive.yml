@@ -1,0 +1,67 @@
+name: Build PBRT v4 automotive renderer
+
+on:
+  push:
+    branches:
+      - assistant/pbrt-v4-automotive-build-20260807
+    paths:
+      - .github/workflows/build-pbrt-v4-automotive.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake g++ python3
+
+      - name: Clone PBRT v4 with dependencies
+        run: |
+          git clone --depth 1 --recursive --shallow-submodules https://github.com/mmp/pbrt-v4.git pbrt-v4
+
+      - name: Configure CPU release build
+        run: |
+          cmake -S pbrt-v4 -B pbrt-v4/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPBRT_BUILD_GPU_RENDERER=OFF
+
+      - name: Build renderer and image tools
+        run: |
+          cmake --build pbrt-v4/build --target pbrt imgtool -j2
+
+      - name: Package portable runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/bin artifact/licenses
+          PBRT_BIN="$(find pbrt-v4/build -type f -name pbrt -perm -111 | head -n1)"
+          IMGTOOL_BIN="$(find pbrt-v4/build -type f -name imgtool -perm -111 | head -n1)"
+          test -n "$PBRT_BIN"
+          test -n "$IMGTOOL_BIN"
+          cp "$PBRT_BIN" artifact/bin/pbrt
+          cp "$IMGTOOL_BIN" artifact/bin/imgtool
+          cp pbrt-v4/LICENSE.txt artifact/licenses/PBRT_LICENSE.txt
+          cp pbrt-v4/THIRD_PARTY.md artifact/licenses/PBRT_THIRD_PARTY.md
+          ldd artifact/bin/pbrt > artifact/pbrt.ldd.txt || true
+          ldd artifact/bin/imgtool > artifact/imgtool.ldd.txt || true
+          artifact/bin/pbrt --help > artifact/pbrt-help.txt 2>&1 || true
+          sha256sum artifact/bin/* > artifact/SHA256SUMS.txt
+          printf '%s\n' \
+            'Source: https://github.com/mmp/pbrt-v4' \
+            'Build: CPU Release, PBRT_BUILD_GPU_RENDERER=OFF' \
+            > artifact/BUILD_PROVENANCE.txt
+
+      - name: Upload PBRT runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: pbrt-v4-linux-x64-automotive
+          path: artifact
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 1
