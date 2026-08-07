@@ -1,0 +1,13 @@
+name: Disabled legacy portable renderer fetch
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disabled:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Legacy transfer workflow intentionally disabled.'

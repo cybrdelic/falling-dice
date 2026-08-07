@@ -1,0 +1,217 @@
+name: Render automotive benchmark in parallel
+
+on:
+  push:
+    branches:
+      - assistant/fetch-bforartists-20260805
+    paths:
+      - .github/workflows/render-automotive-parallel.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render-view:
+    name: render-${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include:
+          - name: front_hero
+            spp: 192
+            eye: "-11.8,0.92,7.2"
+            target: "0.0,-0.22,0.0"
+            fov: "31.5"
+          - name: rear_hero
+            spp: 192
+            eye: "11.8,0.92,-7.2"
+            target: "0.0,-0.22,0.0"
+            fov: "31.5"
+          - name: side_profile
+            spp: 192
+            eye: "0.0,0.70,14.5"
+            target: "0.0,-0.24,0.0"
+            fov: "31.0"
+          - name: front_low
+            spp: 192
+            eye: "-11.2,-0.08,-6.8"
+            target: "0.0,-0.50,0.0"
+            fov: "32.0"
+          - name: glasshouse_detail
+            spp: 128
+            eye: "-4.6,1.65,5.2"
+            target: "0.35,0.72,0.72"
+            fov: "25.0"
+          - name: front_wheel_detail
+            spp: 128
+            eye: "-5.15,-0.02,4.05"
+            target: "-3.0,-0.76,1.58"
+            fov: "24.0"
+          - name: headlamp_detail
+            spp: 128
+            eye: "-6.2,0.14,3.25"
+            target: "-4.2,-0.18,1.05"
+            fov: "22.0"
+          - name: rear_lamp_detail
+            spp: 128
+            eye: "6.25,0.22,-3.3"
+            target: "4.25,0.16,-1.02"
+            fov: "22.0"
+
+    steps:
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake g++ python3 curl libglfw3-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev
+
+      - name: Fetch pinned rendering stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --recursive --filter=blob:none https://github.com/mmp/pbrt-v4.git pbrt-v4
+          git -C pbrt-v4 fetch --depth 1 origin 5f7a606806a4ac7b939131ded9d7a30ebd02416e
+          git -C pbrt-v4 checkout --detach 5f7a606806a4ac7b939131ded9d7a30ebd02416e
+          git -C pbrt-v4 submodule update --init --recursive --depth 1
+          git clone --filter=blob:none --no-checkout https://github.com/mmp/pbrt-v4-scenes.git scenes
+          git -C scenes fetch --depth 1 origin 30cf4a0346ae5a80a2d7a530a3ef7d0fa4f70572
+          git -C scenes checkout --detach 30cf4a0346ae5a80a2d7a530a3ef7d0fa4f70572
+          git -C scenes sparse-checkout init --cone
+          git -C scenes sparse-checkout set bmw-m6
+          curl -L --fail --retry 4 --retry-all-errors -o oidn.tar.gz \
+            https://github.com/RenderKit/oidn/releases/download/v2.5.0/oidn-2.5.0.x86_64.linux.tar.gz
+          echo '254a8355856f8cd433edb7dd832b5fb02e7157d073f7d22e331ce06533fb491f  oidn.tar.gz' | sha256sum -c -
+          tar -xzf oidn.tar.gz
+          OIDN_ROOT="$(find "$PWD" -maxdepth 1 -type d -name 'oidn-*.x86_64.linux' | head -n 1)"
+          test -x "$OIDN_ROOT/bin/oidnDenoise"
+          echo "OIDN_ROOT=$OIDN_ROOT" >> "$GITHUB_ENV"
+
+      - name: Build PBRT C++ CPU renderer
+        run: |
+          cmake -S pbrt-v4 -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPBRT_BUILD_GPU_RENDERER=OFF
+          cmake --build build --target pbrt imgtool -j2
+
+      - name: Compile immutable studio scene
+        env:
+          VIEW: ${{ matrix.name }}
+          SPP: ${{ matrix.spp }}
+          EYE: ${{ matrix.eye }}
+          TARGET: ${{ matrix.target }}
+          FOV: ${{ matrix.fov }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import math, os, re
+          scene_dir=Path('scenes/bmw-m6')
+          source=(scene_dir/'bmw-m6.pbrt').read_text()
+          source=re.sub(r'AttributeBegin\s*\n\s*Rotate 80 0 1 0\s*\n\s*Rotate -90 1 0 0\s*\n\s*LightSource "infinite"\s*\n\s*"string filename" "textures/sunflowers_equiarea\.exr"\s*\n\s*AttributeEnd','',source,count=1)
+          source=re.sub(r'"integer yresolution"\s*\[\s*\d+\s*\]','"integer yresolution" [ 900 ]',source)
+          source=re.sub(r'"integer xresolution"\s*\[\s*\d+\s*\]','"integer xresolution" [ 1600 ]',source)
+          source=re.sub(r'Sampler "halton"\s*\n\s*"integer pixelsamples"\s*\[\s*\d+\s*\]',f'Sampler "halton"\n    "integer pixelsamples" [ {os.environ["SPP"]} ]',source)
+          source=source.replace('"rgb reflectance" [ 0.7 .7 .7 ]','"rgb reflectance" [ 0.014 0.042 0.190 ]')
+          source=source.replace('"float roughness" [ 0 ]','"float roughness" [ 0.12 ]',1)
+          source=source.replace('"rgb reflectance" [ 0.0442848 0.0442848 0.0442848 ]','"rgb reflectance" [ 0.014 0.016 0.021 ]')
+          source=source.replace('"float vroughness" [ 0.010408 ]\n    "float uroughness" [ 0.010408 ]','"float vroughness" [ 0.30 ]\n    "float uroughness" [ 0.30 ]',1)
+          source=source.replace('# Name "BMWRearLight_Cube.032"\n\nAttributeBegin\n    NamedMaterial "HeadLightGlass"','# Name "BMWRearLight_Cube.032"\n\nAttributeBegin\n    NamedMaterial "TailLampLens"')
+          eye=tuple(float(x) for x in os.environ['EYE'].split(',')); target=tuple(float(x) for x in os.environ['TARGET'].split(',')); fov=float(os.environ['FOV']); view=os.environ['VIEW']
+          add=lambda a,b:tuple(x+y for x,y in zip(a,b)); sub=lambda a,b:tuple(x-y for x,y in zip(a,b)); mul=lambda a,s:tuple(x*s for x in a)
+          dot=lambda a,b:sum(x*y for x,y in zip(a,b))
+          def cross(a,b):return (a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0])
+          def norm(a):
+            d=math.sqrt(max(1e-20,dot(a,a)));return tuple(x/d for x in a)
+          def points(vs):return ' '.join(f'{x:.6f}' for p in vs for x in p)
+          def rect(c,u,v):return [sub(sub(c,u),v),add(sub(c,v),u),add(add(c,u),v),add(sub(c,u),v)]
+          def light(c,u,v,L):
+            p=rect(c,u,v);return f'AttributeBegin\n  AreaLightSource "diffuse" "rgb L" [ {L[0]} {L[1]} {L[2]} ] "bool twosided" [ true ]\n  Shape "trianglemesh" "integer indices" [ 0 1 2 0 2 3 ] "point3 P" [ {points(p)} ]\nAttributeEnd\n'
+          forward3=norm(sub(target,eye));forward=norm((forward3[0],0.0,forward3[2]));up=(0.0,1.0,0.0);right=norm(cross(forward,up))
+          backdrop=rect(add(add(target,mul(forward,8.5)),(0.0,3.5,0.0)),mul(right,30.0),mul(up,8.0))
+          rig=('MakeNamedMaterial "TailLampLens" "string type" [ "coateddiffuse" ] "rgb reflectance" [ 0.22 0.0015 0.0010 ] "float roughness" [ 0.045 ]\n'
+               'MakeNamedMaterial "StudioBackdrop" "string type" [ "diffuse" ] "rgb reflectance" [ 0.010 0.012 0.018 ]\n'
+               'AttributeBegin\n  LightSource "infinite" "rgb L" [ 0.022 0.026 0.036 ]\nAttributeEnd\n'
+               f'AttributeBegin\n  NamedMaterial "StudioBackdrop"\n  Shape "trianglemesh" "integer indices" [ 0 1 2 0 2 3 ] "point3 P" [ {points(backdrop)} ]\nAttributeEnd\n')
+          rig+=light(add(add(sub(eye,mul(forward,2.2)),mul(right,-3.4)),(0.0,1.65,0.0)),mul(right,1.6),mul(up,1.05),(8.0,8.8,10.5))
+          rig+=light(add(add(sub(eye,mul(forward,1.6)),mul(right,3.6)),(0.0,1.15,0.0)),mul(right,1.3),mul(up,0.85),(3.2,3.5,4.3))
+          rig+=light(add(add(target,(0.0,5.8,0.0)),mul(forward,-0.4)),mul(right,3.5),mul(forward,1.8),(3.8,4.0,4.5))
+          source=source.replace('WorldBegin\n','WorldBegin\n\n'+rig,1)
+          source=re.sub(r'LookAt\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s*\n\s*[-+0-9.eE]+\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s*\n\s*[-+0-9.eE]+\s+[-+0-9.eE]+\s+[-+0-9.eE]+',f'LookAt {eye[0]:.6f} {eye[1]:.6f} {eye[2]:.6f}\n    {target[0]:.6f} {target[1]:.6f} {target[2]:.6f}\n    0 1 0',source,count=1)
+          source=re.sub(r'"float fov"\s*\[\s*[^\]]+\]',f'"float fov" [ {fov} ]',source,count=1)
+          source=re.sub(r'"string filename"\s*\[\s*"[^"]+"\s*\]',f'"string filename" [ "{view}.exr" ]',source,count=1)
+          (scene_dir/f'{view}.pbrt').write_text(source)
+          PY
+
+      - name: Render, denoise, tone-map and validate view
+        env:
+          VIEW: ${{ matrix.name }}
+          SPP: ${{ matrix.spp }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LD_LIBRARY_PATH="$OIDN_ROOT/lib:${LD_LIBRARY_PATH:-}"
+          mkdir -p payload/{renders,raw,denoised,scenes,logs,validation,licenses,metadata}
+          (cd scenes/bmw-m6 && ../../build/pbrt --spp "$SPP" "$VIEW.pbrt") 2>&1 | tee "payload/logs/${VIEW}_pbrt.txt"
+          build/imgtool convert --outfile "payload/raw/${VIEW}.pfm" "scenes/bmw-m6/${VIEW}.exr"
+          "$OIDN_ROOT/bin/oidnDenoise" --device cpu --hdr "payload/raw/${VIEW}.pfm" --quality high --maxmem 4096 --output "payload/denoised/${VIEW}.pfm" --verbose 1 2>&1 | tee "payload/logs/${VIEW}_oidn.txt"
+          build/imgtool convert --scale 1.6 --despike 18 --aces-filmic --preservecolors --outfile "payload/renders/${VIEW}.png" "payload/denoised/${VIEW}.pfm"
+          build/imgtool info "payload/renders/${VIEW}.png" > "payload/validation/${VIEW}_image_info.txt"
+          cp "scenes/bmw-m6/${VIEW}.pbrt" "payload/scenes/${VIEW}.pbrt"
+          cp scenes/bmw-m6/BLENDSWAP_LICENSE.txt payload/licenses/
+          cp "$OIDN_ROOT/LICENSE.txt" payload/licenses/OIDN_LICENSE.txt
+          printf '%s\n' 5f7a606806a4ac7b939131ded9d7a30ebd02416e > "payload/metadata/${VIEW}_PBRT_COMMIT.txt"
+          printf '%s\n' 30cf4a0346ae5a80a2d7a530a3ef7d0fa4f70572 > "payload/metadata/${VIEW}_SCENE_COMMIT.txt"
+          printf '%s\n' 2.5.0 > "payload/metadata/${VIEW}_OIDN_VERSION.txt"
+          test "$(stat -c %s "payload/renders/${VIEW}.png")" -gt 100000
+          sha256sum "payload/renders/${VIEW}.png" "payload/scenes/${VIEW}.pbrt" > "payload/validation/${VIEW}_SHA256SUMS.txt"
+
+      - name: Upload view payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: automotive-view-${{ matrix.name }}
+          path: payload
+          if-no-files-found: error
+          compression-level: 4
+          retention-days: 1
+
+  assemble:
+    runs-on: ubuntu-24.04
+    needs: render-view
+    steps:
+      - name: Download all accepted view payloads
+        uses: actions/download-artifact@v4
+        with:
+          pattern: automotive-view-*
+          path: artifact
+          merge-multiple: true
+
+      - name: Verify complete immutable view set
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          root=Path('artifact'); expected=['front_hero','rear_hero','side_profile','front_low','glasshouse_detail','front_wheel_detail','headlamp_detail','rear_lamp_detail']
+          rows=[]; hashes=set()
+          for name in expected:
+            p=root/'renders'/f'{name}.png'; s=root/'scenes'/f'{name}.pbrt'
+            if not p.is_file() or p.stat().st_size<100000 or not s.is_file():raise SystemExit(f'missing or undersized {name}')
+            h=hashlib.sha256(p.read_bytes()).hexdigest();hashes.add(h);rows.append({'view':name,'png_bytes':p.stat().st_size,'png_sha256':h,'scene_sha256':hashlib.sha256(s.read_bytes()).hexdigest()})
+          if len(hashes)!=len(expected):raise SystemExit('duplicate render payload')
+          manifest={'schema':'cybrdelic.automotive-pbrt-parallel.v1','status':'PASS','geometry':'one immutable 113-part CC0 production-reference assembly','resolution':[1600,900],'hero_spp':192,'detail_spp':128,'renderer':'PBRT-v4 C++ spectral CPU','denoiser':'OIDN 2.5.0 high-quality CPU','tone_map':'ACES filmic scale 1.6','views':rows}
+          (root/'PARALLEL_RENDER_MANIFEST.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          (root/'PROVENANCE.txt').write_text('Renderer: PBRT-v4 C++ spectral CPU path tracer\nGeometry: CC0 BMW M6 production-reference assembly from mmp/pbrt-v4-scenes\nVehicle geometry is identical in all eight views; only cameras and out-of-frustum studio fixtures change.\nNo image-generation model was used.\n')
+          PY
+          find artifact -type f -print0 | sort -z | xargs -0 sha256sum > artifact/SHA256SUMS.txt
+
+      - name: Upload assembled benchmark
+        uses: actions/upload-artifact@v4
+        with:
+          name: automotive-pbrt-v4-parallel-final
+          path: artifact
+          if-no-files-found: error
+          compression-level: 4
+          retention-days: 1
