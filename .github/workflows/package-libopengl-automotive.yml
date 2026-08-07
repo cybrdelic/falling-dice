@@ -1,0 +1,39 @@
+name: Package PBRT OpenGL runtime loader
+
+on:
+  push:
+    branches:
+      - assistant/pbrt-v4-automotive-build-20260807
+    paths:
+      - .github/workflows/package-libopengl-automotive.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Install and package loader
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libopengl0
+          mkdir -p artifact/lib
+          OPENGL_LIB="$(ldconfig -p | awk '/libOpenGL\.so\.0/{print $NF; exit}')"
+          test -n "$OPENGL_LIB"
+          cp -L "$OPENGL_LIB" artifact/lib/libOpenGL.so.0
+          sha256sum artifact/lib/libOpenGL.so.0 > artifact/SHA256SUMS.txt
+          ldd artifact/lib/libOpenGL.so.0 > artifact/libOpenGL.ldd.txt || true
+
+      - name: Upload loader
+        uses: actions/upload-artifact@v4
+        with:
+          name: pbrt-libOpenGL-runtime
+          path: artifact
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 1
