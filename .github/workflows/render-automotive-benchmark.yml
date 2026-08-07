@@ -19,16 +19,23 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build cmake g++ python3 libglfw3-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev
+          sudo apt-get install -y ninja-build cmake g++ python3 curl libglfw3-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev
 
-      - name: Fetch PBRT C++ renderer and CC0 BMW scene
+      - name: Fetch PBRT, the CC0 production vehicle, and OIDN
         shell: bash
         run: |
           set -euo pipefail
           git clone --recursive --depth 1 https://github.com/mmp/pbrt-v4.git pbrt-v4
           git clone --depth 1 --filter=blob:none --sparse https://github.com/mmp/pbrt-v4-scenes.git scenes
-          cd scenes
-          git sparse-checkout set bmw-m6
+          (cd scenes && git sparse-checkout set bmw-m6)
+          curl -L --fail --retry 4 --retry-all-errors \
+            -o oidn.tar.gz \
+            https://github.com/RenderKit/oidn/releases/download/v2.5.0/oidn-2.5.0.x86_64.linux.tar.gz
+          echo '254a8355856f8cd433edb7dd832b5fb02e7157d073f7d22e331ce06533fb491f  oidn.tar.gz' | sha256sum -c -
+          tar -xzf oidn.tar.gz
+          OIDN_ROOT="$(find "$PWD" -maxdepth 1 -type d -name 'oidn-*.x86_64.linux' | head -n 1)"
+          test -x "$OIDN_ROOT/bin/oidnDenoise"
+          echo "OIDN_ROOT=$OIDN_ROOT" >> "$GITHUB_ENV"
 
       - name: Build PBRT CPU renderer
         shell: bash
@@ -37,6 +44,8 @@ jobs:
           cmake -S pbrt-v4 -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPBRT_BUILD_GPU_RENDERER=OFF
           cmake --build build --target pbrt imgtool -j2
           build/pbrt --help > pbrt_help.txt || true
+          export LD_LIBRARY_PATH="$OIDN_ROOT/lib:${LD_LIBRARY_PATH:-}"
+          "$OIDN_ROOT/bin/oidnDenoise" --list_devices > oidn_devices.txt
 
       - name: Generate camera-aware studio scenes
         shell: bash
@@ -44,33 +53,49 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import math, re
+          import math
+          import re
 
           scene_dir = Path('scenes/bmw-m6')
           source = (scene_dir / 'bmw-m6.pbrt').read_text()
+
+          # Remove the photographic environment. All 113 vehicle parts stay immutable.
           source = re.sub(
               r'AttributeBegin\s*\n\s*Rotate 80 0 1 0\s*\n\s*Rotate -90 1 0 0\s*\n\s*LightSource "infinite"\s*\n\s*"string filename" "textures/sunflowers_equiarea\.exr"\s*\n\s*AttributeEnd',
               '', source, count=1)
-          source = re.sub(r'"integer yresolution"\s*\[\s*\d+\s*\]', '"integer yresolution" [ 720 ]', source)
-          source = re.sub(r'"integer xresolution"\s*\[\s*\d+\s*\]', '"integer xresolution" [ 1280 ]', source)
-          source = re.sub(r'Sampler "halton"\s*\n\s*"integer pixelsamples"\s*\[\s*\d+\s*\]', 'Sampler "halton"\n    "integer pixelsamples" [ 96 ]', source)
-          source = source.replace('"rgb reflectance" [ 0.7 .7 .7 ]', '"rgb reflectance" [ 0.018 0.055 0.245 ]')
-          source = source.replace('"float roughness" [ 0 ]', '"float roughness" [ 0.085 ]', 1)
-          source = source.replace('"rgb reflectance" [ 0.0442848 0.0442848 0.0442848 ]', '"rgb reflectance" [ 0.018 0.021 0.027 ]')
-          source = source.replace('"float vroughness" [ 0.010408 ]\n    "float uroughness" [ 0.010408 ]', '"float vroughness" [ 0.22 ]\n    "float uroughness" [ 0.22 ]', 1)
+          source = re.sub(r'"integer yresolution"\s*\[\s*\d+\s*\]', '"integer yresolution" [ 900 ]', source)
+          source = re.sub(r'"integer xresolution"\s*\[\s*\d+\s*\]', '"integer xresolution" [ 1600 ]', source)
+          source = re.sub(
+              r'Sampler "halton"\s*\n\s*"integer pixelsamples"\s*\[\s*\d+\s*\]',
+              'Sampler "halton"\n    "integer pixelsamples" [ 192 ]', source)
+
+          # Dark, physically legible automotive paint and a satin studio floor.
+          source = source.replace('"rgb reflectance" [ 0.7 .7 .7 ]', '"rgb reflectance" [ 0.014 0.042 0.190 ]')
+          source = source.replace('"float roughness" [ 0 ]', '"float roughness" [ 0.12 ]', 1)
+          source = source.replace(
+              '"rgb reflectance" [ 0.0442848 0.0442848 0.0442848 ]',
+              '"rgb reflectance" [ 0.014 0.016 0.021 ]')
+          source = source.replace(
+              '"float vroughness" [ 0.010408 ]\n    "float uroughness" [ 0.010408 ]',
+              '"float vroughness" [ 0.30 ]\n    "float uroughness" [ 0.30 ]', 1)
 
           views = {
-              'front_hero': ((-11.8, 0.95, 7.2), (0.0, -0.18, 0.0), 32.0),
-              'rear_hero': ((11.8, 0.95, -7.2), (0.0, -0.18, 0.0), 32.0),
-              'side_profile': ((0.0, 0.72, 14.5), (0.0, -0.20, 0.0), 31.5),
-              'front_low': ((-11.2, -0.10, -6.8), (0.0, -0.48, 0.0), 32.5),
+              'front_hero': ((-11.8, 0.92, 7.2), (0.0, -0.22, 0.0), 31.5, 192),
+              'rear_hero': ((11.8, 0.92, -7.2), (0.0, -0.22, 0.0), 31.5, 192),
+              'side_profile': ((0.0, 0.70, 14.5), (0.0, -0.24, 0.0), 31.0, 192),
+              'front_low': ((-11.2, -0.08, -6.8), (0.0, -0.50, 0.0), 32.0, 192),
+              'glasshouse_detail': ((-4.6, 1.65, 5.2), (0.35, 0.72, 0.72), 25.0, 128),
+              'front_wheel_detail': ((-5.15, -0.02, 4.05), (-3.0, -0.76, 1.58), 24.0, 128),
+              'headlamp_detail': ((-6.2, 0.14, 3.25), (-4.2, -0.18, 1.05), 22.0, 128),
+              'rear_lamp_detail': ((6.25, 0.22, -3.3), (4.25, 0.16, -1.02), 22.0, 128),
           }
 
           def add(a, b): return tuple(x + y for x, y in zip(a, b))
           def sub(a, b): return tuple(x - y for x, y in zip(a, b))
           def mul(a, s): return tuple(x * s for x in a)
           def dot(a, b): return sum(x * y for x, y in zip(a, b))
-          def cross(a, b): return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+          def cross(a, b):
+              return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
           def norm(a):
               d = math.sqrt(max(1e-20, dot(a, a)))
               return tuple(x / d for x in a)
@@ -87,66 +112,104 @@ jobs:
                   'AttributeEnd\n')
 
           world_marker = 'WorldBegin\n'
-          for name, (eye, target, fov) in views.items():
+          manifest = []
+          for name, (eye, target, fov, spp) in views.items():
               forward3 = norm(sub(target, eye))
               forward = norm((forward3[0], 0.0, forward3[2]))
               up = (0.0, 1.0, 0.0)
               right = norm(cross(forward, up))
-              backdrop_center = add(add(target, mul(forward, 8.0)), (0.0, 3.55, 0.0))
-              backdrop = rect(backdrop_center, mul(right, 10.0), mul(up, 5.0))
+
+              # A dark camera-facing wall. The luminous cards are all behind the camera
+              # or above the crop, so they appear only as controlled paint highlights.
+              backdrop_center = add(add(target, mul(forward, 8.5)), (0.0, 3.5, 0.0))
+              backdrop = rect(backdrop_center, mul(right, 11.0), mul(up, 5.3))
               studio = (
-                  'MakeNamedMaterial "StudioBackdrop" "string type" [ "diffuse" ] "rgb reflectance" [ 0.016 0.019 0.026 ]\n'
+                  'MakeNamedMaterial "StudioBackdrop" "string type" [ "diffuse" ] '
+                  '"rgb reflectance" [ 0.010 0.012 0.018 ]\n'
                   'AttributeBegin\n'
-                  '  LightSource "infinite" "rgb L" [ 0.012 0.016 0.024 ]\n'
+                  '  LightSource "infinite" "rgb L" [ 0.018 0.022 0.032 ]\n'
                   'AttributeEnd\n'
                   'AttributeBegin\n'
                   '  NamedMaterial "StudioBackdrop"\n'
                   f'  Shape "trianglemesh" "integer indices" [ 0 1 2 0 2 3 ] "point3 P" [ {points(backdrop)} ]\n'
                   'AttributeEnd\n')
-              studio += area_rect(add(add(target, mul(right, -5.4)), add(mul(forward, -0.8), (0.0, 2.7, 0.0))), mul(forward, 2.5), mul(up, 1.65), (20, 22, 27))
-              studio += area_rect(add(add(target, mul(right, 5.0)), add(mul(forward, -0.3), (0.0, 2.1, 0.0))), mul(forward, 2.1), mul(up, 1.35), (8, 9, 12))
-              studio += area_rect(add(target, (0.0, 5.15, 0.0)), mul(right, 4.5), mul(forward, 3.0), (12, 13, 15))
-              studio += area_rect(add(add(target, mul(forward, 4.8)), (0.0, 2.8, 0.0)), mul(right, 3.2), mul(up, 1.35), (16, 12, 9))
+
+              # Near-camera key/fill cards: invisible to primary rays by placement, but
+              # reflected by body, chrome and glass. This is how automotive highlight
+              # bands are authored without placing fake geometry on the vehicle.
+              key_center = add(add(sub(eye, mul(forward, 2.2)), mul(right, -3.4)), (0.0, 1.65, 0.0))
+              fill_center = add(add(sub(eye, mul(forward, 1.6)), mul(right, 3.6)), (0.0, 1.15, 0.0))
+              studio += area_rect(key_center, mul(right, 1.9), mul(up, 1.25), (12.0, 13.0, 15.5))
+              studio += area_rect(fill_center, mul(right, 1.5), mul(up, 0.95), (4.5, 5.0, 6.2))
+
+              # Broad overhead source gives continuous roof/hood highlight flow.
+              overhead_center = add(add(target, (0.0, 5.8, 0.0)), mul(forward, -0.4))
+              studio += area_rect(overhead_center, mul(right, 4.4), mul(forward, 2.5), (6.0, 6.3, 7.0))
 
               text = source.replace(world_marker, world_marker + '\n' + studio, 1)
               text = re.sub(
                   r'LookAt\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s*\n\s*[-+0-9.eE]+\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s*\n\s*[-+0-9.eE]+\s+[-+0-9.eE]+\s+[-+0-9.eE]+',
-                  f'LookAt {eye[0]:.6f} {eye[1]:.6f} {eye[2]:.6f}\n    {target[0]:.6f} {target[1]:.6f} {target[2]:.6f}\n    0 1 0',
+                  f'LookAt {eye[0]:.6f} {eye[1]:.6f} {eye[2]:.6f}\n'
+                  f'    {target[0]:.6f} {target[1]:.6f} {target[2]:.6f}\n'
+                  '    0 1 0',
                   text, count=1)
               text = re.sub(r'"float fov"\s*\[\s*[^\]]+\]', f'"float fov" [ {fov} ]', text, count=1)
-              text = re.sub(r'"string filename"\s*\[\s*"[^"]+"\s*\]', f'"string filename" [ "{name}.png" ]', text, count=1)
+              text = re.sub(r'"string filename"\s*\[\s*"[^"]+"\s*\]', f'"string filename" [ "{name}.exr" ]', text, count=1)
+              text = re.sub(
+                  r'Sampler "halton"\s*\n\s*"integer pixelsamples"\s*\[\s*\d+\s*\]',
+                  f'Sampler "halton"\n    "integer pixelsamples" [ {spp} ]', text, count=1)
               (scene_dir / f'{name}.pbrt').write_text(text)
+              manifest.append(f'{name} {spp} {eye} {target} {fov}')
+
+          (scene_dir / 'STUDIO_MANIFEST.txt').write_text('\n'.join(manifest) + '\n')
           PY
 
-      - name: Render four production-reference views
+      - name: Render, denoise and tone-map eight views
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifact/renders artifact/scenes artifact/logs artifact/bin
-          for scene in front_hero rear_hero side_profile front_low; do
-            echo "Rendering $scene"
-            (cd scenes/bmw-m6 && ../../build/pbrt --spp 96 "${scene}.pbrt") 2>&1 | tee "artifact/logs/${scene}.txt"
-            cp "scenes/bmw-m6/${scene}.png" "artifact/renders/${scene}.png"
+          export LD_LIBRARY_PATH="$OIDN_ROOT/lib:${LD_LIBRARY_PATH:-}"
+          mkdir -p artifact/renders artifact/raw artifact/denoised artifact/scenes artifact/logs artifact/bin artifact/validation
+          scenes=(front_hero rear_hero side_profile front_low glasshouse_detail front_wheel_detail headlamp_detail rear_lamp_detail)
+          for scene in "${scenes[@]}"; do
+            case "$scene" in
+              *_detail) spp=128 ;;
+              *) spp=192 ;;
+            esac
+            echo "Rendering $scene at $spp spp"
+            (cd scenes/bmw-m6 && ../../build/pbrt --spp "$spp" "${scene}.pbrt") 2>&1 | tee "artifact/logs/${scene}_pbrt.txt"
+            build/imgtool convert --outfile "artifact/raw/${scene}.pfm" "scenes/bmw-m6/${scene}.exr"
+            "$OIDN_ROOT/bin/oidnDenoise" --device cpu --hdr "artifact/raw/${scene}.pfm" --quality high --maxmem 4096 --output "artifact/denoised/${scene}.pfm" --verbose 1 \
+              2>&1 | tee "artifact/logs/${scene}_oidn.txt"
+            build/imgtool convert --scale 0.58 --despike 18 --aces-filmic --preservecolors \
+              --outfile "artifact/renders/${scene}.png" "artifact/denoised/${scene}.pfm"
+            build/imgtool info "artifact/renders/${scene}.png" > "artifact/validation/${scene}_image_info.txt"
             cp "scenes/bmw-m6/${scene}.pbrt" "artifact/scenes/${scene}.pbrt"
           done
+
           cp build/pbrt build/imgtool artifact/bin/
-          cp pbrt_help.txt artifact/
+          cp pbrt_help.txt oidn_devices.txt artifact/
           cp scenes/bmw-m6/BLENDSWAP_LICENSE.txt artifact/
+          cp "$OIDN_ROOT/LICENSE.txt" artifact/OIDN_LICENSE.txt
+          cp scenes/bmw-m6/STUDIO_MANIFEST.txt artifact/
           printf '%s\n' \
             'Renderer: pbrt-v4, C++ CPU spectral path tracer' \
+            'Denoiser: Intel Open Image Denoise 2.5.0, CPU high-quality RT filter' \
             'Geometry: BMW M6 scene from mmp/pbrt-v4-scenes, CC0' \
-            'Geometry is identical in every view; only cameras and studio fixtures change.' \
+            'Vehicle geometry is byte-identical in every view; only cameras and studio fixtures change.' \
+            'All final PNGs are ACES-filmic tone mapped from denoised linear PFM.' \
             'Purpose: production-reference automotive fidelity benchmark; not an original vehicle design or manufacturing CAD.' \
             > artifact/PROVENANCE.txt
           git -C pbrt-v4 rev-parse HEAD > artifact/PBRT_COMMIT.txt
           git -C scenes rev-parse HEAD > artifact/SCENE_COMMIT.txt
+          printf '%s\n' '2.5.0' > artifact/OIDN_VERSION.txt
           find artifact -type f -print0 | sort -z | xargs -0 sha256sum > artifact/SHA256SUMS.txt
 
-      - name: Upload final C++ path-traced benchmark
+      - name: Upload accepted C++ automotive benchmark
         uses: actions/upload-artifact@v4
         with:
-          name: automotive-pbrt-v4-studio-benchmark
+          name: automotive-pbrt-v4-denoised-studio
           path: artifact
           if-no-files-found: error
-          compression-level: 6
+          compression-level: 4
           retention-days: 1
