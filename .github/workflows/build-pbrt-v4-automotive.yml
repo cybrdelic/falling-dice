@@ -31,7 +31,9 @@ jobs:
         run: |
           cmake -S pbrt-v4 -B pbrt-v4/build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DPBRT_BUILD_GPU_RENDERER=OFF
+            -DPBRT_BUILD_GPU_RENDERER=OFF \
+            -DGLFW_BUILD_WAYLAND=OFF \
+            -DGLFW_BUILD_X11=ON
 
       - name: Build renderer and image tools
         run: |
@@ -56,7 +58,7 @@ jobs:
           sha256sum artifact/bin/* > artifact/SHA256SUMS.txt
           printf '%s\n' \
             'Source: https://github.com/mmp/pbrt-v4' \
-            'Build: CPU Release, PBRT_BUILD_GPU_RENDERER=OFF' \
+            'Build: CPU Release, PBRT_BUILD_GPU_RENDERER=OFF, GLFW_BUILD_WAYLAND=OFF' \
             > artifact/BUILD_PROVENANCE.txt
 
       - name: Upload PBRT runtime
