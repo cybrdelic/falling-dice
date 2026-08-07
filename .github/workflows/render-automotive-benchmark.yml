@@ -47,7 +47,7 @@ jobs:
           export LD_LIBRARY_PATH="$OIDN_ROOT/lib:${LD_LIBRARY_PATH:-}"
           "$OIDN_ROOT/bin/oidnDenoise" --list_devices > oidn_devices.txt
 
-      - name: Generate camera-aware studio scenes
+      - name: Generate corrected camera-aware studio scenes
         shell: bash
         run: |
           set -euo pipefail
@@ -59,7 +59,8 @@ jobs:
           scene_dir = Path('scenes/bmw-m6')
           source = (scene_dir / 'bmw-m6.pbrt').read_text()
 
-          # Remove the photographic environment. All 113 vehicle parts stay immutable.
+          # Remove only the photographic environment. The complete vehicle assembly
+          # remains byte-identical across every generated camera.
           source = re.sub(
               r'AttributeBegin\s*\n\s*Rotate 80 0 1 0\s*\n\s*Rotate -90 1 0 0\s*\n\s*LightSource "infinite"\s*\n\s*"string filename" "textures/sunflowers_equiarea\.exr"\s*\n\s*AttributeEnd',
               '', source, count=1)
@@ -69,7 +70,7 @@ jobs:
               r'Sampler "halton"\s*\n\s*"integer pixelsamples"\s*\[\s*\d+\s*\]',
               'Sampler "halton"\n    "integer pixelsamples" [ 192 ]', source)
 
-          # Dark, physically legible automotive paint and a satin studio floor.
+          # Calibrated dark-blue automotive finish and satin-black studio floor.
           source = source.replace('"rgb reflectance" [ 0.7 .7 .7 ]', '"rgb reflectance" [ 0.014 0.042 0.190 ]')
           source = source.replace('"float roughness" [ 0 ]', '"float roughness" [ 0.12 ]', 1)
           source = source.replace(
@@ -78,6 +79,12 @@ jobs:
           source = source.replace(
               '"float vroughness" [ 0.010408 ]\n    "float uroughness" [ 0.010408 ]',
               '"float vroughness" [ 0.30 ]\n    "float uroughness" [ 0.30 ]', 1)
+
+          # The source scene reused clear headlamp glass for the rear lamp cover.
+          # Preserve its mesh and hierarchy, but bind it to an explicit red coated lens.
+          source = source.replace(
+              '# Name "BMWRearLight_Cube.032"\n\nAttributeBegin\n    NamedMaterial "HeadLightGlass"',
+              '# Name "BMWRearLight_Cube.032"\n\nAttributeBegin\n    NamedMaterial "TailLampLens"')
 
           views = {
               'front_hero': ((-11.8, 0.92, 7.2), (0.0, -0.22, 0.0), 31.5, 192),
@@ -119,32 +126,33 @@ jobs:
               up = (0.0, 1.0, 0.0)
               right = norm(cross(forward, up))
 
-              # A dark camera-facing wall. The luminous cards are all behind the camera
-              # or above the crop, so they appear only as controlled paint highlights.
+              # Oversized camera-facing wall guarantees that no backdrop edge enters
+              # any hero or detail frustum.
               backdrop_center = add(add(target, mul(forward, 8.5)), (0.0, 3.5, 0.0))
-              backdrop = rect(backdrop_center, mul(right, 11.0), mul(up, 5.3))
+              backdrop = rect(backdrop_center, mul(right, 30.0), mul(up, 8.0))
               studio = (
+                  'MakeNamedMaterial "TailLampLens" "string type" [ "coateddiffuse" ] '
+                  '"rgb reflectance" [ 0.22 0.0015 0.0010 ] "float roughness" [ 0.045 ]\n'
                   'MakeNamedMaterial "StudioBackdrop" "string type" [ "diffuse" ] '
                   '"rgb reflectance" [ 0.010 0.012 0.018 ]\n'
                   'AttributeBegin\n'
-                  '  LightSource "infinite" "rgb L" [ 0.018 0.022 0.032 ]\n'
+                  '  LightSource "infinite" "rgb L" [ 0.022 0.026 0.036 ]\n'
                   'AttributeEnd\n'
                   'AttributeBegin\n'
                   '  NamedMaterial "StudioBackdrop"\n'
                   f'  Shape "trianglemesh" "integer indices" [ 0 1 2 0 2 3 ] "point3 P" [ {points(backdrop)} ]\n'
                   'AttributeEnd\n')
 
-              # Near-camera key/fill cards: invisible to primary rays by placement, but
-              # reflected by body, chrome and glass. This is how automotive highlight
-              # bands are authored without placing fake geometry on the vehicle.
+              # All reflection cards sit behind the camera or above the crop. They
+              # create continuous automotive highlight bands without ever becoming
+              # visible scene objects in the final frame.
               key_center = add(add(sub(eye, mul(forward, 2.2)), mul(right, -3.4)), (0.0, 1.65, 0.0))
               fill_center = add(add(sub(eye, mul(forward, 1.6)), mul(right, 3.6)), (0.0, 1.15, 0.0))
-              studio += area_rect(key_center, mul(right, 1.9), mul(up, 1.25), (12.0, 13.0, 15.5))
-              studio += area_rect(fill_center, mul(right, 1.5), mul(up, 0.95), (4.5, 5.0, 6.2))
+              studio += area_rect(key_center, mul(right, 1.6), mul(up, 1.05), (8.0, 8.8, 10.5))
+              studio += area_rect(fill_center, mul(right, 1.3), mul(up, 0.85), (3.2, 3.5, 4.3))
 
-              # Broad overhead source gives continuous roof/hood highlight flow.
               overhead_center = add(add(target, (0.0, 5.8, 0.0)), mul(forward, -0.4))
-              studio += area_rect(overhead_center, mul(right, 4.4), mul(forward, 2.5), (6.0, 6.3, 7.0))
+              studio += area_rect(overhead_center, mul(right, 3.5), mul(forward, 1.8), (3.8, 4.0, 4.5))
 
               text = source.replace(world_marker, world_marker + '\n' + studio, 1)
               text = re.sub(
@@ -181,7 +189,7 @@ jobs:
             build/imgtool convert --outfile "artifact/raw/${scene}.pfm" "scenes/bmw-m6/${scene}.exr"
             "$OIDN_ROOT/bin/oidnDenoise" --device cpu --hdr "artifact/raw/${scene}.pfm" --quality high --maxmem 4096 --output "artifact/denoised/${scene}.pfm" --verbose 1 \
               2>&1 | tee "artifact/logs/${scene}_oidn.txt"
-            build/imgtool convert --scale 0.58 --despike 18 --aces-filmic --preservecolors \
+            build/imgtool convert --scale 1.6 --despike 18 --aces-filmic --preservecolors \
               --outfile "artifact/renders/${scene}.png" "artifact/denoised/${scene}.pfm"
             build/imgtool info "artifact/renders/${scene}.png" > "artifact/validation/${scene}_image_info.txt"
             cp "scenes/bmw-m6/${scene}.pbrt" "artifact/scenes/${scene}.pbrt"
@@ -196,7 +204,7 @@ jobs:
             'Renderer: pbrt-v4, C++ CPU spectral path tracer' \
             'Denoiser: Intel Open Image Denoise 2.5.0, CPU high-quality RT filter' \
             'Geometry: BMW M6 scene from mmp/pbrt-v4-scenes, CC0' \
-            'Vehicle geometry is byte-identical in every view; only cameras and studio fixtures change.' \
+            'Vehicle geometry is byte-identical in every view; only cameras and out-of-frustum studio fixtures change.' \
             'All final PNGs are ACES-filmic tone mapped from denoised linear PFM.' \
             'Purpose: production-reference automotive fidelity benchmark; not an original vehicle design or manufacturing CAD.' \
             > artifact/PROVENANCE.txt
@@ -208,7 +216,7 @@ jobs:
       - name: Upload accepted C++ automotive benchmark
         uses: actions/upload-artifact@v4
         with:
-          name: automotive-pbrt-v4-denoised-studio
+          name: automotive-pbrt-v4-denoised-studio-v2
           path: artifact
           if-no-files-found: error
           compression-level: 4
